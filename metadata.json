@@ -1,0 +1,5 @@
+{
+  "name": "Commission & BoB Auditor",
+  "description": "A sophisticated tool to reconcile Book of Business data with Commission reports, calculating net payments and overrides per active policy.",
+  "requestFramePermissions": []
+}
