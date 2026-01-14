@@ -1,58 +1,75 @@
 
 import { read, utils } from 'xlsx';
 import { ReconciledRecord, AnalysisResult, UnmatchedRecord } from '../types';
-
-/**
- * Normaliza claves para manejar espacios o mayúsculas en encabezados de Excel
- */
-const normalizeKey = (key: string) => key.trim().toLowerCase();
-
-const findValueByNormalizedKey = (row: any, targets: string[]) => {
-  if (!row || typeof row !== 'object') return undefined;
-  const keys = Object.keys(row);
-  for (const target of targets) {
-    const normalizedTarget = normalizeKey(target);
-    const foundKey = keys.find(k => normalizeKey(k) === normalizedTarget);
-    if (foundKey) return row[foundKey];
-  }
-  return undefined;
-};
+import {
+  getPolicyNumber,
+  getStatus,
+  getPaymentType,
+  getPaymentStatus,
+  getNetPayment,
+  getInsuredName,
+  getCompanyName
+} from '../utils/dataExtractors';
+import { PAYMENT_TYPE, PAYMENT_STATUS, RECORD_STATUS } from '../constants';
 
 export const processFiles = async (
   bobFile: File,
   commissionFile: File
 ): Promise<AnalysisResult> => {
-  // 1. Leer Book of Business (BoB)
-  const bobBuffer = await bobFile.arrayBuffer();
-  const bobWorkbook = read(bobBuffer);
-  const bobSheetName = bobWorkbook.SheetNames[0];
-  const bobRawData: any[] = utils.sheet_to_json(bobWorkbook.Sheets[bobSheetName]);
+  const bobRawData = await readExcelFile(bobFile);
+  const commRawData = await readAllSheets(commissionFile);
 
-  const bobPolicyMap = new Map<string, any>();
-  bobRawData.forEach(row => {
-    const policyIdRaw = findValueByNormalizedKey(row, ["Policy Number", "Policy#", "Póliza"]);
-    if (policyIdRaw !== undefined && policyIdRaw !== null) {
-      bobPolicyMap.set(policyIdRaw.toString().trim(), row);
+  const bobPolicyMap = buildBoBPolicyMap(bobRawData);
+  const activeBoB = filterActivePolicies(bobRawData);
+
+  const { matchedCommMap, unmatchedCommMap } = processCommissions(
+    commRawData,
+    bobPolicyMap
+  );
+
+  const reconciledRecords = buildReconciledRecords(activeBoB, matchedCommMap);
+  const unmatchedRecords = buildUnmatchedRecords(unmatchedCommMap);
+
+  return buildAnalysisResult(reconciledRecords, unmatchedRecords);
+};
+
+const readExcelFile = async (file: File): Promise<any[]> => {
+  const buffer = await file.arrayBuffer();
+  const workbook = read(buffer);
+  const sheetName = workbook.SheetNames[0];
+  return utils.sheet_to_json(workbook.Sheets[sheetName]);
+};
+
+const readAllSheets = async (file: File): Promise<any[]> => {
+  const buffer = await file.arrayBuffer();
+  const workbook = read(buffer);
+  let data: any[] = [];
+  
+  workbook.SheetNames.forEach(sheetName => {
+    const sheetData = utils.sheet_to_json(workbook.Sheets[sheetName]);
+    data = data.concat(sheetData);
+  });
+  
+  return data;
+};
+
+const buildBoBPolicyMap = (bobData: any[]): Map<string, any> => {
+  const policyMap = new Map<string, any>();
+  
+  bobData.forEach(row => {
+    const policyNumber = getPolicyNumber(row);
+    if (policyNumber) {
+      policyMap.set(policyNumber, row);
     }
   });
-
-  // 2. Leer Reporte de Comisiones
-  const commBuffer = await commissionFile.arrayBuffer();
-  const commWorkbook = read(commBuffer);
   
-  let commRawData: any[] = [];
-  commWorkbook.SheetNames.forEach(sheetName => {
-    const sheetData: any[] = utils.sheet_to_json(commWorkbook.Sheets[sheetName]);
-    commRawData = commRawData.concat(sheetData);
-  });
+  return policyMap;
+};
 
-  // 3. Filtrar BoB Activos
-  const activeBoB = bobRawData.filter(row => {
-    const status = findValueByNormalizedKey(row, ["Status", "Estado"]);
-    return status?.toString().toLowerCase() === 'active';
-  });
+const filterActivePolicies = (bobData: any[]): any[] =>
+  bobData.filter(row => getStatus(row) === RECORD_STATUS.ACTIVE);
 
-  // 4. Agrupar Comisiones
+const processCommissions = (commData: any[], bobPolicyMap: Map<string, any>) => {
   const matchedCommMap: Record<string, { commissions: number[]; overrides: number[] }> = {};
   const unmatchedCommMap: Record<string, { 
     commissions: number[]; 
@@ -61,56 +78,82 @@ export const processFiles = async (
     company: string; 
   }> = {};
 
-  commRawData.forEach(row => {
-    const policyIdRaw = findValueByNormalizedKey(row, ["Policy Number", "Policy#", "Póliza"]);
-    if (policyIdRaw === undefined || policyIdRaw === null) return;
-    
-    const policyId = policyIdRaw.toString().trim();
-    const paymentTypeRaw = findValueByNormalizedKey(row, ["Payment Type", "Tipo de Pago"]);
-    const paymentType = paymentTypeRaw?.toString().toLowerCase().trim();
-    
-    const paymentStatusRaw = findValueByNormalizedKey(row, ["Payment Status", "Estado de Pago"]);
-    const paymentStatus = paymentStatusRaw?.toString().toLowerCase().trim();
-    
-    if (paymentStatusRaw && (paymentStatus === 'pending' || paymentStatus === 'cancelled' || paymentStatus === 'failed')) {
-      return; 
-    }
+  commData.forEach(row => {
+    const policyNumber = getPolicyNumber(row);
+    if (!policyNumber) return;
 
-    const netPaymentRaw = findValueByNormalizedKey(row, ["Net Payment", "Pago Neto", "Net"]);
-    const netPayment = parseFloat(netPaymentRaw) || 0;
+    const paymentStatus = getPaymentStatus(row);
+    if (shouldSkipPayment(paymentStatus)) return;
 
-    if (!policyId) return;
+    const isMatched = bobPolicyMap.has(policyNumber);
+    const paymentType = getPaymentType(row);
+    const netPayment = getNetPayment(row);
 
-    const isMatched = bobPolicyMap.has(policyId);
-    
     if (isMatched) {
-      if (!matchedCommMap[policyId]) matchedCommMap[policyId] = { commissions: [], overrides: [] };
-      if (paymentType === 'commission' || paymentType === 'comission' || paymentType === 'comisión') {
-        matchedCommMap[policyId].commissions.push(netPayment);
-      } else if (paymentType === 'override') {
-        matchedCommMap[policyId].overrides.push(netPayment);
-      }
+      addToMatchedMap(matchedCommMap, policyNumber, paymentType, netPayment);
     } else {
-      if (!unmatchedCommMap[policyId]) {
-        unmatchedCommMap[policyId] = { 
-          commissions: [], 
-          overrides: [], 
-          name: findValueByNormalizedKey(row, ["Insured Name", "Insured", "Asegurado", "Customer"])?.toString() || "N/A",
-          company: findValueByNormalizedKey(row, ["Company", "Carrier", "Compañía", "Writing Company"])?.toString() || "N/A"
-        };
-      }
-      if (paymentType === 'commission' || paymentType === 'comission' || paymentType === 'comisión') {
-        unmatchedCommMap[policyId].commissions.push(netPayment);
-      } else if (paymentType === 'override') {
-        unmatchedCommMap[policyId].overrides.push(netPayment);
-      }
+      addToUnmatchedMap(
+        unmatchedCommMap,
+        policyNumber,
+        paymentType,
+        netPayment,
+        row
+      );
     }
   });
 
-  // 5. Construir Resultados Reconciliados
-  const reconciledRecords: ReconciledRecord[] = activeBoB.map(bobRow => {
-    const policyNumberRaw = findValueByNormalizedKey(bobRow, ["Policy Number", "Policy#"]);
-    const policyNumber = policyNumberRaw?.toString().trim() || "N/A";
+  return { matchedCommMap, unmatchedCommMap };
+};
+
+const shouldSkipPayment = (status: string): boolean =>
+  Object.values(PAYMENT_STATUS).includes(status as any);
+
+const addToMatchedMap = (
+  map: Record<string, { commissions: number[]; overrides: number[] }>,
+  policyNumber: string,
+  paymentType: string,
+  amount: number
+): void => {
+  if (!map[policyNumber]) {
+    map[policyNumber] = { commissions: [], overrides: [] };
+  }
+
+  if (PAYMENT_TYPE.COMMISSION.includes(paymentType)) {
+    map[policyNumber].commissions.push(amount);
+  } else if (PAYMENT_TYPE.OVERRIDE.includes(paymentType)) {
+    map[policyNumber].overrides.push(amount);
+  }
+};
+
+const addToUnmatchedMap = (
+  map: Record<string, any>,
+  policyNumber: string,
+  paymentType: string,
+  amount: number,
+  row: any
+): void => {
+  if (!map[policyNumber]) {
+    map[policyNumber] = {
+      commissions: [],
+      overrides: [],
+      name: getInsuredName(row),
+      company: getCompanyName(row)
+    };
+  }
+
+  if (PAYMENT_TYPE.COMMISSION.includes(paymentType)) {
+    map[policyNumber].commissions.push(amount);
+  } else if (PAYMENT_TYPE.OVERRIDE.includes(paymentType)) {
+    map[policyNumber].overrides.push(amount);
+  }
+};
+
+const buildReconciledRecords = (
+  bobData: any[],
+  matchedCommMap: Record<string, { commissions: number[]; overrides: number[] }>
+): ReconciledRecord[] =>
+  bobData.map(bobRow => {
+    const policyNumber = getPolicyNumber(bobRow) || 'N/A';
     const commData = matchedCommMap[policyNumber] || { commissions: [], overrides: [] };
 
     return {
@@ -118,35 +161,50 @@ export const processFiles = async (
       policyNumber,
       commissionPayments: commData.commissions,
       overridePayments: commData.overrides,
-      commissionTotal: commData.commissions.reduce((a, b) => a + b, 0),
-      overrideTotal: commData.overrides.reduce((a, b) => a + b, 0),
-      netTotal: (commData.commissions.reduce((a, b) => a + b, 0)) + (commData.overrides.reduce((a, b) => a + b, 0))
+      commissionTotal: sumArray(commData.commissions),
+      overrideTotal: sumArray(commData.overrides),
+      netTotal: sumArray(commData.commissions) + sumArray(commData.overrides)
     };
   });
 
-  // 6. Construir Resultados No Encontrados
-  const unmatchedRecords: UnmatchedRecord[] = Object.entries(unmatchedCommMap).map(([policyNumber, data]) => {
-    const cTotal = data.commissions.reduce((a, b) => a + b, 0);
-    const oTotal = data.overrides.reduce((a, b) => a + b, 0);
+const buildUnmatchedRecords = (
+  unmatchedCommMap: Record<string, any>
+): UnmatchedRecord[] =>
+  Object.entries(unmatchedCommMap).map(([policyNumber, data]) => {
+    const commissionTotal = sumArray(data.commissions);
+    const overrideTotal = sumArray(data.overrides);
+
     return {
       policyNumber,
       insuredName: data.name,
       company: data.company,
       commissionPayments: data.commissions,
       overridePayments: data.overrides,
-      commissionTotal: cTotal,
-      overrideTotal: oTotal,
-      netTotal: cTotal + oTotal
+      commissionTotal,
+      overrideTotal,
+      netTotal: commissionTotal + overrideTotal
     };
   });
+
+const buildAnalysisResult = (
+  reconciledRecords: ReconciledRecord[],
+  unmatchedRecords: UnmatchedRecord[]
+): AnalysisResult => {
+  const grandTotalCommission = sumArray(reconciledRecords.map(r => r.commissionTotal));
+  const grandTotalOverride = sumArray(reconciledRecords.map(r => r.overrideTotal));
+  const grandTotalNet = sumArray(reconciledRecords.map(r => r.netTotal));
+  const unmatchedTotalNet = sumArray(unmatchedRecords.map(r => r.netTotal));
 
   return {
     records: reconciledRecords,
     unmatchedRecords,
-    grandTotalCommission: reconciledRecords.reduce((acc, curr) => acc + curr.commissionTotal, 0),
-    grandTotalOverride: reconciledRecords.reduce((acc, curr) => acc + curr.overrideTotal, 0),
-    grandTotalNet: reconciledRecords.reduce((acc, curr) => acc + curr.netTotal, 0),
-    unmatchedTotalNet: unmatchedRecords.reduce((acc, curr) => acc + curr.netTotal, 0),
+    grandTotalCommission,
+    grandTotalOverride,
+    grandTotalNet,
+    unmatchedTotalNet,
     activePoliciesCount: reconciledRecords.length
   };
 };
+
+const sumArray = (arr: number[]): number =>
+  arr.reduce((sum, val) => sum + val, 0);
