@@ -18,7 +18,7 @@ export const ProcessButton: React.FC<ProcessButtonProps> = ({
       className={`px-8 py-3 rounded-xl font-bold text-white transition-all transform active:scale-95 shadow-lg
         ${isDisabled ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
     >
-      {isLoading ? 'Processing...' : 'Run Reconciliation'}
+      {isLoading ? 'Procesando...' : 'Ejecutar Reconciliación'}
     </button>
   </div>
 );

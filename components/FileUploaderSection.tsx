@@ -56,13 +56,13 @@ export const FileUploaderSection: React.FC<FileUploaderSectionProps> = ({
   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
     <FileInput
       id="bob"
-      label="1. Book of Business (Source)"
+      label="1. Book of Business (BoB)"
       selectedFile={bobFile}
       onFileSelect={onBobFileSelect}
     />
     <FileInput
       id="comm"
-      label="2. Commission Report (Target)"
+      label="2. Reporte de Comisiones"
       selectedFile={commFile}
       onFileSelect={onCommFileSelect}
     />
