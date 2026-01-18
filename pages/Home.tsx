@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { utils, writeFile } from 'xlsx';
 import { FileUploaderSection } from '../components/FileUploaderSection';
 import { ProcessButton } from '../components/ProcessButton';
@@ -9,6 +10,7 @@ import { processFiles } from '../services/excelProcessor';
 import { AnalysisResult } from '../types';
 import { formatCurrency, formatFilename } from '../utils/formatters';
 import { ERROR_MESSAGES } from '../constants';
+import { useAuth } from '../context/AuthContext';
 
 const HomePage: React.FC = () => {
   const [bobFile, setBobFile] = useState<File | null>(null);
@@ -18,6 +20,8 @@ const HomePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showUnmatched, setShowUnmatched] = useState(false);
+  const { isAuthenticated, hasMembership } = useAuth();
+  const navigate = useNavigate();
 
   const handleProcess = async () => {
     if (!bobFile || !commFile) {
@@ -84,31 +88,55 @@ const HomePage: React.FC = () => {
         <div className="space-y-6">
           <SummaryCardGrid result={result} />
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-4">
-              <TableControls
-                matchedCount={result.records.length}
-                unmatchedCount={result.unmatchedRecords.length}
+          {!isAuthenticated ? (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-8 text-center">
+              <h3 className="text-2xl font-bold text-slate-900 mb-2">Acceso Restringido</h3>
+              <p className="text-slate-600 mb-6">Para ver y exportar los registros completos, necesitas iniciar sesión con una membresía activa.</p>
+              <button
+                onClick={() => navigate('/login')}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors inline-block"
+              >
+                Iniciar Sesión
+              </button>
+            </div>
+          ) : !hasMembership ? (
+            <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-8 text-center">
+              <h3 className="text-2xl font-bold text-slate-900 mb-2">Actualiza Tu Membresía</h3>
+              <p className="text-slate-600 mb-6">Necesitas una membresía activa para acceder a la tabla de registros y exportar datos.</p>
+              <button
+                onClick={() => navigate('/membership')}
+                className="px-6 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors inline-block"
+              >
+                Ver Planes
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-4">
+                <TableControls
+                  matchedCount={result.records.length}
+                  unmatchedCount={result.unmatchedRecords.length}
+                  showUnmatched={showUnmatched}
+                  searchTerm={searchTerm}
+                  onTabChange={setShowUnmatched}
+                  onSearchChange={setSearchTerm}
+                  onExportExcel={handleExportExcel}
+                />
+
+                <TableSubtotals
+                  commissions={currentSubtotals.commissions}
+                  overrides={currentSubtotals.overrides}
+                  net={currentSubtotals.net}
+                />
+              </div>
+
+              <RecordsTable
+                records={currentRecords}
                 showUnmatched={showUnmatched}
                 searchTerm={searchTerm}
-                onTabChange={setShowUnmatched}
-                onSearchChange={setSearchTerm}
-                onExportExcel={handleExportExcel}
-              />
-
-              <TableSubtotals
-                commissions={currentSubtotals.commissions}
-                overrides={currentSubtotals.overrides}
-                net={currentSubtotals.net}
               />
             </div>
-
-            <RecordsTable
-              records={currentRecords}
-              showUnmatched={showUnmatched}
-              searchTerm={searchTerm}
-            />
-          </div>
+          )}
         </div>
       )}
     </main>
