@@ -195,7 +195,7 @@ const buildUnmatchedSheet = (result: AnalysisResult) => {
 };
 
 const getInsuredNameFromBoB = (bob: any): string => {
-  const targets = ['insured name', 'insured', 'asegurado', 'customer', 'nombre', 'client name', 'client'];
+  const targets = ['insured name', 'insured', 'asegurado', 'customer', 'nombre', 'client name', 'client', 'full name'];
   const keys = Object.keys(bob);
   const foundKey = keys.find(k => targets.includes(k.trim().toLowerCase()));
   return foundKey ? bob[foundKey] : 'N/A';
