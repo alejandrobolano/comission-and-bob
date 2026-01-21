@@ -59,3 +59,26 @@ export const getNetPayment = (row: any): number => {
   const payment = findValueByNormalizedKey(row, ['Net Payment', 'Pago Neto', 'Net']);
   return parseFloat(payment) || 0;
 };
+
+export const getCommissionMonth = (row: any): string => {
+  const dateValue = findValueByNormalizedKey(row, [
+    'Commission Month', 
+    'Comm Date', 
+    'Comm Month', 
+    'Commission Date', 
+    'Fecha de Comisión',
+    'Mes de Comisión'
+  ]);
+  
+  if (dateValue === undefined || dateValue === null) return "N/A";
+  
+  if (typeof dateValue === 'number') {
+    if (dateValue > 30000 && dateValue < 60000) {
+      const date = new Date((dateValue - 25569) * 86400 * 1000);
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+    }
+    return dateValue.toString();
+  }
+
+  return dateValue.toString().trim();
+};

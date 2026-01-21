@@ -68,7 +68,10 @@ export const TableControls: React.FC<TableControlsProps> = ({
   matchedCount,
   unmatchedCount,
   showUnmatched,
+  selectedDate,
+  availableDates,
   searchTerm,
+  setSelectedDate,
   onTabChange,
   onSearchChange,
   onExportExcel
@@ -80,6 +83,17 @@ export const TableControls: React.FC<TableControlsProps> = ({
       showUnmatched={showUnmatched}
       onTabChange={onTabChange}
     />
+    <div className="flex items-center gap-2 flex-1 lg:flex-none">
+      <span className="text-[10px] font-bold text-slate-400 uppercase">Dates:</span>
+      <select
+        value={selectedDate}
+        onChange={(e) => setSelectedDate(e.target.value)}
+        className="bg-white border border-slate-300 rounded-lg text-xs font-bold px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      >
+        <option value="All">All Dates</option>
+        {availableDates.map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+    </div>
     <div className="flex gap-2 w-full sm:w-auto">
       <button
         onClick={onExportExcel}

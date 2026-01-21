@@ -6,7 +6,7 @@ import { SummaryCard } from '../components/SummaryCard';
 import { TableControls, TableSubtotals } from '../components/TableHeader';
 import { RecordsTable } from '../components/RecordsTable';
 import { processFiles } from '../services/excelProcessor';
-import { AnalysisResult } from '../types';
+import { AnalysisResult, PaymentDetail } from '../types';
 import { formatCurrency, formatFilename } from '../utils/formatters';
 import { ERROR_MESSAGES } from '../constants';
 
@@ -18,6 +18,7 @@ const HomePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showUnmatched, setShowUnmatched] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>("All");
 
   const handleProcess = async () => {
     if (!bobFile || !commFile) {
@@ -42,14 +43,46 @@ const HomePage: React.FC = () => {
     ? (showUnmatched ? result.unmatchedRecords : result.records)
     : [];
 
+  const dateFilteredRecords = useMemo(() => {
+    if (!result) return [];
+
+    if (selectedDate === "All") return currentRecords;
+
+    return currentRecords
+      .map((r: any) => {
+        const commissionPayments = (r.commissionPayments || []).filter(
+          (p: PaymentDetail) => p.date === selectedDate
+        );
+        const overridePayments = (r.overridePayments || []).filter(
+          (p: PaymentDetail) => p.date === selectedDate
+        );
+
+        if (commissionPayments.length === 0 && overridePayments.length === 0) return null;
+
+        const commissionTotal = commissionPayments.reduce((s: number, p: PaymentDetail) => s + (p.amount || 0), 0);
+        const overrideTotal = overridePayments.reduce((s: number, p: PaymentDetail) => s + (p.amount || 0), 0);
+
+        return {
+          ...r,
+          commissionPayments,
+          overridePayments,
+          commissionTotal,
+          overrideTotal,
+          netTotal: commissionTotal + overrideTotal
+        };
+      })
+      .filter(Boolean);
+  }, [result, currentRecords, selectedDate]);
+
+
   const currentSubtotals = useMemo(() => {
-    const filtered = getFilteredRecords(currentRecords, searchTerm, showUnmatched);
+    const filtered = getFilteredRecords(dateFilteredRecords, searchTerm, showUnmatched);
     return {
       commissions: filtered.reduce((sum, r) => sum + r.commissionTotal, 0),
       overrides: filtered.reduce((sum, r) => sum + r.overrideTotal, 0),
       net: filtered.reduce((sum, r) => sum + r.netTotal, 0)
     };
-  }, [currentRecords, searchTerm, showUnmatched]);
+  }, [dateFilteredRecords, searchTerm, showUnmatched]);
 
   const handleExportExcel = () => {
     if (!result) return;
@@ -86,10 +119,14 @@ const HomePage: React.FC = () => {
 
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-4">
+
               <TableControls
                 matchedCount={result.records.length}
                 unmatchedCount={result.unmatchedRecords.length}
                 showUnmatched={showUnmatched}
+                selectedDate={selectedDate}
+                availableDates={result.availableDates || []}
+                setSelectedDate={setSelectedDate}
                 searchTerm={searchTerm}
                 onTabChange={setShowUnmatched}
                 onSearchChange={setSearchTerm}
@@ -104,7 +141,7 @@ const HomePage: React.FC = () => {
             </div>
 
             <RecordsTable
-              records={currentRecords}
+              records={dateFilteredRecords}
               showUnmatched={showUnmatched}
               searchTerm={searchTerm}
             />

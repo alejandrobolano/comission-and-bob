@@ -1,4 +1,9 @@
 
+export interface PaymentDetail {
+  amount: number;
+  date: string | number;
+}
+
 export interface BoBRecord {
   [key: string]: any;
   "Policy Number": string | number;
@@ -27,8 +32,8 @@ export interface UnmatchedRecord {
 export interface ReconciledRecord {
   originalBoB: BoBRecord;
   policyNumber: string;
-  commissionPayments: number[];
-  overridePayments: number[];
+  commissionPayments: PaymentDetail[];
+  overridePayments: PaymentDetail[];
   commissionTotal: number;
   overrideTotal: number;
   netTotal: number;
@@ -42,4 +47,5 @@ export interface AnalysisResult {
   grandTotalNet: number;
   unmatchedTotalNet: number;
   activePoliciesCount: number;
+  availableDates?: string[];
 }

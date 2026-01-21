@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { formatCurrency } from '../utils/formatters';
 import { EXCLUDED_BOB_FIELDS, MAX_BOB_FIELD_DISPLAY } from '../constants';
 import { normalizeKey } from '../utils/formatters';
-import { ReconciledRecord, UnmatchedRecord } from '../types';
+import { ReconciledRecord, UnmatchedRecord, PaymentDetail } from '../types';
 
 interface RecordsTableProps {
   records: (ReconciledRecord | UnmatchedRecord)[];
@@ -61,31 +61,71 @@ const RecordTableRow: React.FC<{
   );
 };
 
-const PaymentAmountCell: React.FC<{ amounts: number[] }> = ({ amounts }) => (
-  <td className="px-6 py-4">
-    <span className="text-sm font-bold block">{formatCurrency(amounts.reduce((a, b) => a + b, 0))}</span>
-    <div className="flex flex-wrap gap-1 mt-1">
-      {amounts.map((p, i) => (
-        <span key={i} className="text-[9px] bg-emerald-50 text-emerald-600 px-1 rounded border border-emerald-100">
-          {formatCurrency(p)}
-        </span>
-      ))}
-    </div>
-  </td>
-);
+const PaymentAmountCell: React.FC<{ payments: PaymentDetail[] }> = ({ payments }) => {
+  const sortedPayments = [...payments].sort((a, b) =>
+    (a.date || '').localeCompare(b.date || '')
+  );
 
-const OverrideAmountCell: React.FC<{ amounts: number[] }> = ({ amounts }) => (
-  <td className="px-6 py-4">
-    <span className="text-sm font-bold block">{formatCurrency(amounts.reduce((a, b) => a + b, 0))}</span>
-    <div className="flex flex-wrap gap-1 mt-1">
-      {amounts.map((p, i) => (
-        <span key={i} className="text-[9px] bg-amber-50 text-amber-600 px-1 rounded border border-amber-100">
-          {formatCurrency(p)}
-        </span>
-      ))}
-    </div>
-  </td>
-);
+  return (
+    <td className="px-6 py-4">
+      <span className="text-sm font-bold block">
+        {formatCurrency(
+          sortedPayments.reduce((a, p) => a + (p.amount || 0), 0)
+        )}
+      </span>
+
+      <div className="flex flex-col gap-1 mt-2">
+        {sortedPayments.map((p, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between gap-2 text-[10px] bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-100"
+          >
+            <span className="font-bold whitespace-nowrap">
+              {p.date || 'N/A'}
+            </span>
+            <span className="font-black whitespace-nowrap">
+              {formatCurrency(p.amount)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </td>
+  );
+};
+
+
+const OverrideAmountCell: React.FC<{ payments: PaymentDetail[] }> = ({ payments }) => {
+  const sortedPayments = [...payments].sort((a, b) =>
+    (a.date || '').localeCompare(b.date || '')
+  );
+
+  return (
+    <td className="px-6 py-4">
+      <span className="text-sm font-bold block">
+        {formatCurrency(
+          sortedPayments.reduce((a, p) => a + (p.amount || 0), 0)
+        )}
+      </span>
+
+      <div className="flex flex-col gap-1 mt-2">
+        {sortedPayments.map((p, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between gap-2 text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-100"
+          >
+            <span className="font-bold whitespace-nowrap">
+              {p.date || 'N/A'}
+            </span>
+            <span className="font-black whitespace-nowrap">
+              {formatCurrency(p.amount)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </td>
+  );
+};
+
 
 export const RecordsTable: React.FC<RecordsTableProps> = ({
   records,
@@ -126,8 +166,8 @@ export const RecordsTable: React.FC<RecordsTableProps> = ({
           {filteredRecords.map((rec, idx) => (
             <tr key={idx} className="hover:bg-slate-50 transition-colors">
               <RecordTableRow record={rec} showUnmatched={showUnmatched} />
-              <PaymentAmountCell amounts={rec.commissionPayments} />
-              <OverrideAmountCell amounts={rec.overridePayments} />
+              <PaymentAmountCell payments={rec.commissionPayments} />
+              <OverrideAmountCell payments={rec.overridePayments} />
               <td className="px-6 py-4 text-sm font-black text-blue-700 text-right">
                 {formatCurrency(rec.netTotal)}
               </td>

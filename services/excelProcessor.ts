@@ -1,6 +1,6 @@
 
 import { read, utils } from 'xlsx';
-import { ReconciledRecord, AnalysisResult, UnmatchedRecord } from '../types';
+import { ReconciledRecord, AnalysisResult, UnmatchedRecord, PaymentDetail } from '../types';
 import {
   getPolicyNumber,
   getStatus,
@@ -8,7 +8,8 @@ import {
   getPaymentStatus,
   getNetPayment,
   getInsuredName,
-  getCompanyName
+  getCompanyName,
+  getCommissionMonth
 } from '../utils/dataExtractors';
 import { PAYMENT_TYPE, PAYMENT_STATUS, RECORD_STATUS } from '../constants';
 
@@ -69,11 +70,13 @@ const buildBoBPolicyMap = (bobData: any[]): Map<string, any> => {
 const filterActivePolicies = (bobData: any[]): any[] =>
   bobData.filter(row => getStatus(row) === RECORD_STATUS.ACTIVE);
 
+const allMonthsSet = new Set<string>();
+
 const processCommissions = (commData: any[], bobPolicyMap: Map<string, any>) => {
-  const matchedCommMap: Record<string, { commissions: number[]; overrides: number[] }> = {};
+  const matchedCommMap: Record<string, { commissions: PaymentDetail[]; overrides: PaymentDetail[] }> = {};
   const unmatchedCommMap: Record<string, { 
-    commissions: number[]; 
-    overrides: number[]; 
+    commissions: PaymentDetail[]; 
+    overrides: PaymentDetail[]; 
     name: string; 
     company: string; 
   }> = {};
@@ -88,16 +91,19 @@ const processCommissions = (commData: any[], bobPolicyMap: Map<string, any>) => 
     const isMatched = bobPolicyMap.has(policyNumber);
     const paymentType = getPaymentType(row);
     const netPayment = getNetPayment(row);
+    const commDate = getCommissionMonth(row);
+    if (commDate !== "N/A") allMonthsSet.add(commDate);
 
     if (isMatched) {
-      addToMatchedMap(matchedCommMap, policyNumber, paymentType, netPayment);
+      addToMatchedMap(matchedCommMap, policyNumber, paymentType, netPayment, commDate);
     } else {
       addToUnmatchedMap(
         unmatchedCommMap,
         policyNumber,
         paymentType,
         netPayment,
-        row
+        row,
+        commDate
       );
     }
   });
@@ -109,19 +115,20 @@ const shouldSkipPayment = (status: string): boolean =>
   Object.values(PAYMENT_STATUS).includes(status as any);
 
 const addToMatchedMap = (
-  map: Record<string, { commissions: number[]; overrides: number[] }>,
+  map: Record<string, { commissions: PaymentDetail[]; overrides: PaymentDetail[] }>,
   policyNumber: string,
   paymentType: string,
-  amount: number
+  amount: number, 
+  commDate: string
 ): void => {
   if (!map[policyNumber]) {
     map[policyNumber] = { commissions: [], overrides: [] };
   }
 
   if (PAYMENT_TYPE.COMMISSION.includes(paymentType)) {
-    map[policyNumber].commissions.push(amount);
+    map[policyNumber].commissions.push({ amount, date: commDate });
   } else if (PAYMENT_TYPE.OVERRIDE.includes(paymentType)) {
-    map[policyNumber].overrides.push(amount);
+    map[policyNumber].overrides.push({ amount, date: commDate });
   }
 };
 
@@ -130,7 +137,8 @@ const addToUnmatchedMap = (
   policyNumber: string,
   paymentType: string,
   amount: number,
-  row: any
+  row: any,
+  commDate: string
 ): void => {
   if (!map[policyNumber]) {
     map[policyNumber] = {
@@ -142,15 +150,15 @@ const addToUnmatchedMap = (
   }
 
   if (PAYMENT_TYPE.COMMISSION.includes(paymentType)) {
-    map[policyNumber].commissions.push(amount);
+    map[policyNumber].commissions.push({ amount, date: commDate });
   } else if (PAYMENT_TYPE.OVERRIDE.includes(paymentType)) {
-    map[policyNumber].overrides.push(amount);
+    map[policyNumber].overrides.push({ amount, date: commDate });
   }
 };
 
 const buildReconciledRecords = (
   bobData: any[],
-  matchedCommMap: Record<string, { commissions: number[]; overrides: number[] }>
+  matchedCommMap: Record<string, { commissions: PaymentDetail[]; overrides: PaymentDetail[] }>
 ): ReconciledRecord[] =>
   bobData.map(bobRow => {
     const policyNumber = getPolicyNumber(bobRow) || 'N/A';
@@ -161,9 +169,9 @@ const buildReconciledRecords = (
       policyNumber,
       commissionPayments: commData.commissions,
       overridePayments: commData.overrides,
-      commissionTotal: sumArray(commData.commissions),
-      overrideTotal: sumArray(commData.overrides),
-      netTotal: sumArray(commData.commissions) + sumArray(commData.overrides)
+      commissionTotal: sumArray(commData.commissions.flatMap(c => [c.amount])),
+      overrideTotal: sumArray(commData.overrides.flatMap(o => [o.amount])),
+      netTotal: sumArray(commData.commissions.flatMap(c => [c.amount])) + sumArray(commData.overrides.flatMap(o => [o.amount]))
     };
   });
 
@@ -171,8 +179,8 @@ const buildUnmatchedRecords = (
   unmatchedCommMap: Record<string, any>
 ): UnmatchedRecord[] =>
   Object.entries(unmatchedCommMap).map(([policyNumber, data]) => {
-    const commissionTotal = sumArray(data.commissions);
-    const overrideTotal = sumArray(data.overrides);
+    const commissionTotal = sumArray(data.commissions.flatMap(c => [c.amount]));
+    const overrideTotal = sumArray(data.overrides.flatMap(o => [o.amount]));
 
     return {
       policyNumber,
@@ -202,7 +210,8 @@ const buildAnalysisResult = (
     grandTotalOverride,
     grandTotalNet,
     unmatchedTotalNet,
-    activePoliciesCount: reconciledRecords.length
+    activePoliciesCount: reconciledRecords.length,
+    availableDates: Array.from(allMonthsSet).sort()
   };
 };
 
